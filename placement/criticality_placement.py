@@ -81,6 +81,7 @@ class DependencyCriticalityPlacement(JobPlacement):
         p_idle: float = 550.0,
         p_peak: float = 1500.0,
         k: float = 1.2,
+        tie_tol: float = 1e-9,
     ):
         if critical_nodes is None and args is not None:
             critical_nodes = getattr(args, "critical_nodes", None)
@@ -98,6 +99,7 @@ class DependencyCriticalityPlacement(JobPlacement):
         self.soft_t = float(soft_t)
         self.alpha_t = float(alpha_t)
         self.p_idle, self.p_peak, self.k = float(p_idle), float(p_peak), float(k)
+        self.tie_tol = float(tie_tol)
         self.temp: Dict[int, float] = {}
         self.moves_last_round = 0
 
@@ -180,6 +182,15 @@ class DependencyCriticalityPlacement(JobPlacement):
         energy = power.sum(axis=1) / (n * self.p_peak)
         return (1.0 - self.lam) * (h - self.g * phi) - self.lam * energy
 
+    def _argmax(self, scores) -> int:
+        """Index of the best score. Scores within tie_tol of the best count as a tie and
+        the lowest index wins, so last-bit rounding differences between CPUs cannot
+        change the choice."""
+        scores = np.asarray(scores, dtype=float)
+        if self.tie_tol <= 0:
+            return int(np.argmax(scores))
+        return int(np.flatnonzero(scores >= scores.max() - self.tie_tol)[0])
+
     def _criticality(self, view: "_ClusterView") -> np.ndarray:
         tier = np.array([1.0 if n in self.critical_nodes else 0.0 for n in view.nodes])
         span = np.zeros(len(view.nodes))
@@ -212,7 +223,7 @@ class DependencyCriticalityPlacement(JobPlacement):
             pick = single[cool[single]] if cool[single].any() else single
             trial = np.repeat(view.used[None, :], len(pick), axis=0).astype(float)
             trial[np.arange(len(pick)), pick] += demand
-            best = pick[int(np.argmax(self._objective_batch(trial, view.cap, crit)))]
+            best = pick[self._argmax(self._objective_batch(trial, view.cap, crit))]
             return view.free_gpus(best)[:demand]
 
         # Spread over the fewest nodes possible, letting J choose which.
@@ -231,7 +242,7 @@ class DependencyCriticalityPlacement(JobPlacement):
             t = int(min(left[cand[0]], remaining))
             trial = np.repeat(used[None, :], len(cand), axis=0)
             trial[np.arange(len(cand)), cand] += t
-            best = cand[int(np.argmax(self._objective_batch(trial, view.cap, crit)))]
+            best = cand[self._argmax(self._objective_batch(trial, view.cap, crit))]
             chosen.extend(view.free_gpus(best)[:t])
             used[best] += t
             left[best] -= t
@@ -271,8 +282,8 @@ class DependencyCriticalityPlacement(JobPlacement):
             trial[:, h] -= size
             trial[np.arange(len(targets)), targets] += size
             scores = self._objective_batch(trial, view.cap, crit)
-            best = int(np.argmax(scores))
-            if scores[best] - base - self.w_m <= 0:
+            best = self._argmax(scores)
+            if scores[best] - base - self.w_m <= self.tie_tol:
                 break
             dst = targets[best]
             view.release(jid)

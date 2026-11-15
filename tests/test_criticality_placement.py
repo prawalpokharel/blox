@@ -203,3 +203,11 @@ def test_governance_floor_off_matches_default_choice():
     a = DependencyCriticalityPlacement(critical_nodes=[0], rebalance=False)
     b = DependencyCriticalityPlacement(critical_nodes=[0], governance_floor=False, rebalance=False)
     assert run_place(a, jobs, [1], make_gpu_df()) == run_place(b, jobs, [1], make_gpu_df())
+
+
+def test_near_ties_break_to_the_lowest_index():
+    policy = DependencyCriticalityPlacement()
+    scores = [0.5, 0.5 + 1e-15, 0.4]
+    assert policy._argmax(scores) == 0
+    assert DependencyCriticalityPlacement(tie_tol=0.0)._argmax(scores) == 1
+    assert policy._argmax([0.1, 0.3, 0.2]) == 1
