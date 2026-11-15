@@ -95,6 +95,7 @@ placement_policy = DependencyCriticalityPlacement(
     args,
     critical_nodes=[0, 5, 9],  # Node_IDs an operator declares critical (optional)
     adaptive=True,             # adjust the energy weight from a thermal proxy
+    governance_floor=False,    # True: use critical nodes only when a job fits nowhere else
 )
 ```
 

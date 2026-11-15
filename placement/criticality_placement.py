@@ -30,6 +30,10 @@ thermal proxy is near the soft limit are avoided when any other node fits. When
 nothing fits, lower-priority running jobs are preempted in reverse priority
 order, as in Blox's default placement.
 
+With ``governance_floor=True`` the operator's tier is a hard constraint, as
+in the CEI framework's governance floors: critical nodes are used only when a
+job fits nowhere else.
+
 After placing, up to two single-node jobs move off nodes above the soft
 thermal limit when the move raises J by more than the migration cost
 ``w_m``. With ``adaptive=True``, lam follows the IEMCON hysteresis band:
@@ -65,6 +69,7 @@ class DependencyCriticalityPlacement(JobPlacement):
         g: float = 0.5,
         adaptive: bool = False,
         use_span_graph: bool = True,
+        governance_floor: bool = False,
         rebalance: bool = True,
         w_m: float = 0.02,
         eta: float = 0.02,
@@ -84,6 +89,7 @@ class DependencyCriticalityPlacement(JobPlacement):
         self.g = float(g)
         self.adaptive = bool(adaptive)
         self.use_span_graph = bool(use_span_graph)
+        self.governance_floor = bool(governance_floor)
         self.rebalance = bool(rebalance)
         self.w_m = float(w_m)
         self.eta = float(eta)
@@ -187,7 +193,15 @@ class DependencyCriticalityPlacement(JobPlacement):
 
     # choosing GPUs --------------------------------------------------------
     def _choose(self, demand: int, view: "_ClusterView", crit: np.ndarray) -> Optional[List[int]]:
-        free = view.free_count()
+        if self.governance_floor and self.critical_nodes:
+            allowed = np.array([n not in self.critical_nodes for n in view.nodes])
+            gpus = self._choose_among(demand, view, crit, allowed)
+            if gpus is not None:
+                return gpus
+        return self._choose_among(demand, view, crit, np.ones(len(view.nodes), dtype=bool))
+
+    def _choose_among(self, demand, view, crit, allowed) -> Optional[List[int]]:
+        free = np.where(allowed, view.free_count(), 0.0)
         if free.sum() < demand:
             return None
         temp = np.array([self.temp.get(n, 0.0) for n in view.nodes])
@@ -249,6 +263,7 @@ class DependencyCriticalityPlacement(JobPlacement):
             targets = [
                 i for i in range(len(view.nodes))
                 if i != h and free[i] >= size and temp[i] < self.soft_t * 0.9
+                and not (self.governance_floor and view.nodes[i] in self.critical_nodes)
             ]
             if not targets:
                 break

@@ -185,3 +185,21 @@ def test_gavel_schedule_is_rejected():
             SimpleNamespace(server_map={}, gpu_df=make_gpu_df()),
             schedule,
         )
+
+
+def test_governance_floor_keeps_jobs_off_critical_nodes_until_full():
+    # Node 0 is critical. With the floor on, jobs avoid it while the others have room,
+    # even where the objective alone would pick it.
+    jobs = {1: make_job(4), 2: make_job(4), 3: make_job(4), 4: make_job(4)}
+    policy = DependencyCriticalityPlacement(critical_nodes=[0], governance_floor=True, rebalance=False)
+    _, launch = run_place(policy, jobs, [1, 2, 3, 4], make_gpu_df())
+    nodes = [gpu_nodes(launch[j]) for j in (1, 2, 3)]
+    assert {0} not in nodes
+    assert gpu_nodes(launch[4]) == {0}
+
+
+def test_governance_floor_off_matches_default_choice():
+    jobs = {1: make_job(2)}
+    a = DependencyCriticalityPlacement(critical_nodes=[0], rebalance=False)
+    b = DependencyCriticalityPlacement(critical_nodes=[0], governance_floor=False, rebalance=False)
+    assert run_place(a, jobs, [1], make_gpu_df()) == run_place(b, jobs, [1], make_gpu_df())
