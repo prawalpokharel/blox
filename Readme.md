@@ -84,6 +84,22 @@ In those cases launch node_manager in the following way.
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python node_manager.py --ipaddr ip_address_scheduler --interface interface_name
 ```
 
+### Dependency-criticality placement
+
+`placement/criticality_placement.py` adds `DependencyCriticalityPlacement`, a placement policy that keeps load off nodes whose failure would take many jobs down. It works with schedulers that return a plain job order (FIFO, LAS, SRTF, Tiresias) and needs `networkx` in addition to the packages listed below.
+
+```python
+from placement.criticality_placement import DependencyCriticalityPlacement
+
+placement_policy = DependencyCriticalityPlacement(
+    args,
+    critical_nodes=[0, 5, 9],  # Node_IDs an operator declares critical (optional)
+    adaptive=True,             # adjust the energy weight from a thermal proxy
+)
+```
+
+Each candidate placement is scored with the objective of the Centrality-Entropy Index (CEI) scheduler: load entropy across nodes, minus the load on critical nodes, minus modelled power. A node counts as critical when an operator lists it or when several running multi-node jobs share it. Jobs go on the fewest nodes that fit them, and lower-priority jobs are preempted in reverse priority order as in the default placement. The method is described in P. Pokharel, "Self-Tuning Governance of the Energy-Resilience Tradeoff in GPU Cluster Scheduling", IEMCON 2026. Tests: `python -m pytest tests`.
+
 
 ### Details for reproducing results for artifacts
 These are instructions for reproducing artifacts for Blox.
